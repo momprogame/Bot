@@ -2,33 +2,52 @@ name: Deploy Telegram Bot
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ "main", "master" ]
   workflow_dispatch:  # Permite ejecución manual
   schedule:
-    - cron: '*/30 * * * *'  # Ejecutar cada 30 minutos para mantener vivo el bot
+    - cron: '*/55 * * * *'  # Ejecutar cada 55 minutos
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1  # Evita ejecuciones paralelas
     
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1  # Solo historial reciente para ser más rápido
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
+        cache: 'pip'  # Cachea dependencias para acelerar
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
+      continue-on-error: false
     
     - name: Run Telegram Bot
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
       run: |
-        echo "Iniciando bot de Telegram..."
+        echo "🚀 Iniciando bot de Telegram..."
+        echo "📱 Bot username: @tu_bot_username"
+        echo "⏱️  Tiempo máximo: 50 minutos"
+        echo "📊 Iniciando polling..."
         python bot.py
-      timeout-minutes: 25  # GitHub Actions tiene límite de 6 horas, usamos 25 min
+      timeout-minutes: 50
+      continue-on-error: false
+    
+    - name: Notify completion
+      if: always()
+      run: |
+        if [ ${{ job.status }} == 'success' ]; then
+          echo "✅ Bot ejecutado correctamente"
+        else
+          echo "❌ Error en la ejecución del bot"
+        fi
