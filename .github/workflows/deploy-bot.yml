@@ -1,53 +1,107 @@
-name: Deploy Telegram Bot
+name: Deploy Instagram Bot with Account Access
 
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch:  # Permite ejecución manual
+  workflow_dispatch:
   schedule:
     - cron: '*/55 * * * *'  # Ejecutar cada 55 minutos
+
+# Evita ejecuciones concurrentes
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1  # Evita ejecuciones paralelas
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
-        fetch-depth: 1  # Solo historial reciente para ser más rápido
+        fetch-depth: 1
     
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-        cache: 'pip'  # Cachea dependencias para acelerar
+        cache: 'pip'
     
-    - name: Install dependencies
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg  # Para procesar videos
+    
+    - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-      continue-on-error: false
     
-    - name: Run Telegram Bot
+    - name: Wait for previous instance
+      run: |
+        echo "⏳ Esperando 30 segundos para evitar conflictos..."
+        sleep 30
+    
+    - name: Run Telegram Bot with Instagram Account
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        INSTAGRAM_USERNAME: ${{ secrets.INSTAGRAM_USERNAME }}
+        INSTAGRAM_PASSWORD: ${{ secrets.INSTAGRAM_PASSWORD }}
       run: |
-        echo "🚀 Iniciando bot de Telegram..."
-        echo "📱 Bot username: @tu_bot_username"
-        echo "⏱️  Tiempo máximo: 50 minutos"
+        echo "🚀 Iniciando Bot de Telegram con acceso a Instagram..."
+        echo "📱 Bot iniciado a las: $(date)"
+        echo "⏱️  Tiempo máximo de ejecución: 50 minutos"
+        echo "👤 Usuario de Instagram: ${{ secrets.INSTAGRAM_USERNAME }}"
         echo "📊 Iniciando polling..."
-        python bot.py
+        
+        # Ejecutar el bot principal
+        python bot_instagrapi.py
       timeout-minutes: 50
       continue-on-error: false
+    
+    - name: Save session on success
+      if: success()
+      run: |
+        if [ -f "instagram_session.json" ]; then
+          echo "✅ Guardando archivo de sesión como artefacto..."
+          mkdir -p session_backup
+          cp instagram_session.json session_backup/
+          echo "Sesión guardada para próximas ejecuciones"
+        fi
+    
+    - name: Upload session as artifact
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: instagram-session
+        path: instagram_session.json
+        retention-days: 7
+        if-no-files-found: ignore
+    
+    - name: Upload logs on failure
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: error-logs
+        path: |
+          *.log
+          *.json
+        retention-days: 7
+    
+    - name: Cleanup old artifacts
+      if: always()
+      run: |
+        echo "🧹 Limpiando archivos temporales..."
+        rm -f *.tmp
+        rm -rf __pycache__
     
     - name: Notify completion
       if: always()
       run: |
         if [ ${{ job.status }} == 'success' ]; then
-          echo "✅ Bot ejecutado correctamente"
+          echo "✅ Bot ejecutado correctamente a las $(date)"
         else
-          echo "❌ Error en la ejecución del bot"
+          echo "❌ Error en la ejecución del bot a las $(date)"
+          echo "Revisa los logs en la sección de artifacts"
         fi
